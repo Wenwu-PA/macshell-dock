@@ -1,0 +1,23 @@
+id = "wenwu/macdock"
+name = "MacDock Control"
+version = "0.1.1"
+plugin_api = 42
+author = "wenwu"
+license = "MIT"
+description = "MacDock Dock Control: native blur, applications and settings"
+
+[[service]]
+id = "integration"
+entry = "service.luau"
+
+[[panel]]
+id = "control"
+entry = "panel.luau"
+width = 440
+height = "content"
+max_height = 650
+
+[[widget]]
+id = "widget"
+entry = "widget.luau"
+hover_highlight = true

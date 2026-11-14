@@ -1,0 +1,20 @@
+name: checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: sudo apt-get update && sudo apt-get install -y lua5.4 qt6-declarative-dev-tools
+      - run: python -m unittest discover -s tests -v
+      - name: QML syntax
+        run: |
+          for file in app/MacDock/*.qml; do /usr/lib/qt6/bin/qmlformat -n "$file" >/dev/null; done
+      - run: bash -n install.sh uninstall.sh run.sh
+      - name: Build source archive
+        run: python tools/package.py

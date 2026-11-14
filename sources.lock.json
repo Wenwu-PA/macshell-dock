@@ -1,0 +1,93 @@
+{
+  "repository": "https://github.com/0-ss/MacShell",
+  "commit": "51db0bab6997da310d2aacfaa7084740ec44ad4a",
+  "unmodified": [
+    {
+      "path": "CaptureGate.js",
+      "sha": "be1d24031b88daad9250c52d6c4da3e8a4f325d0",
+      "size": 1493
+    },
+    {
+      "path": "CornerBorder.qml",
+      "sha": "90517c2296f96e58906d02c0c2b100d30f6fe634",
+      "size": 3239
+    },
+    {
+      "path": "DockGlassPanel.qml",
+      "sha": "ceb2b17b36bc98288f7da6a82346c668f38146c0",
+      "size": 12192
+    },
+    {
+      "path": "Fonts.js",
+      "sha": "9052602561a2ef4bac4bb2c79374c00b18e5fec9",
+      "size": 466
+    },
+    {
+      "path": "GlassCapture.qml",
+      "sha": "b15d31857c047288bf4faf5f4b9cb90dea0a98c1",
+      "size": 8555
+    },
+    {
+      "path": "GlassShape.js",
+      "sha": "2fb0aa5b4d590c3fc3269f2238611f03e674d3d6",
+      "size": 3863
+    },
+    {
+      "path": "I18n.js",
+      "sha": "d5296fbb2fbe6020dae7475620d641a74fcc19f0",
+      "size": 1096
+    },
+    {
+      "path": "LiveWall.qml",
+      "sha": "4369b1e7cbf1dd98c42aac4261438f5225286842",
+      "size": 1965
+    },
+    {
+      "path": "MenuBorder.qml",
+      "sha": "e286cde1cb5d690e2b4f011907a398820e3c45b4",
+      "size": 1634
+    },
+    {
+      "path": "SafeCapture.qml",
+      "sha": "4b19c6358c60239df70bb28d22d7d181b550bc8b",
+      "size": 10781
+    },
+    {
+      "path": "Spring.qml",
+      "sha": "a9773a5706f7541020af8a3e0ba9f6b7634bd72f",
+      "size": 3028
+    },
+    {
+      "path": "dockglass.frag",
+      "sha": "4850a3ac8b3466d991c7390ff05568e4e1540d44",
+      "size": 8972
+    },
+    {
+      "path": "liquidglass.frag",
+      "sha": "c0e9a36ee9a2e3cb004ed7719ddb688b2b05ac8c",
+      "size": 10916
+    },
+    {
+      "path": "lang/es.js",
+      "sha": "1f97a10b2812771af43a5fd650aa2e578f88a532",
+      "size": 37994
+    },
+    {
+      "path": "lang/ru.js",
+      "sha": "97bd8ba96cd8c25bd4a49e34c68444e6d5ba9a91",
+      "size": 48373
+    }
+  ],
+  "adapted": [
+    {
+      "path": "MacDock.qml",
+      "sha": "dc037ef10d8917927fdbcf14c9bf56b1d4fbd7c6",
+      "size": 359453
+    },
+    {
+      "path": "shell.qml",
+      "sha": "9bb2572ee00dd351d22c87658ee776c2d81b75dd",
+      "size": 26421
+    }
+  ]
+}
