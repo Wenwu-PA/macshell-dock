@@ -11,6 +11,22 @@ import sys
 import tempfile
 ROOT=Path(__file__).resolve().parents[1]
 
+SUPPORTED_NOCTALIA_VERSIONS = {(5, 4, 1), (5, 5, 0)}
+# Reviewed previous launcher: inheritable flock leaked into Dock-launched apps.
+REVIEWED_PREVIOUS_RUNTIME_HASHES = {
+    '19a405cc5ef1b92e50529687bf5a6a2d8c2b5fd5cec0941b8e8390e3e8de9fd1',
+    'c6006bab82921f9679f716c397fc11be07dfb667c3e2788707ad37d93b86f344',
+}
+
+def validate_noctalia_version(output):
+    match = re.search(r'(?<![\d.])v?(\d+)\.(\d+)\.(\d+)(?![\d.])', output, re.I)
+    found = tuple(map(int, match.groups())) if match else None
+    if found not in SUPPORTED_NOCTALIA_VERSIONS:
+        raise RuntimeError(
+            'Unsupported Noctalia version: ' + output.strip()
+            + ' (supported: 5.4.1, 5.5.0; no files changed)'
+        )
+
 def refuse_symlink(path):
     for part in (path,*path.parents):
         if part.is_symlink():raise RuntimeError('Refusing to overwrite symlink: '+str(part))
@@ -18,7 +34,7 @@ def refuse_symlink(path):
 def main():
     mode=sys.argv[1]
     version=subprocess.check_output(['noctalia','--version'],text=True)
-    if 'v5.4.1' not in version:raise RuntimeError('This integration targets Noctalia 5.4.1')
+    validate_noctalia_version(version)
     # Fail before any mutation when the supported registration API is unavailable.
     live=subprocess.run(['noctalia','msg','plugins','list'],capture_output=True,text=True)
     if live.returncode:raise RuntimeError('Noctalia IPC unavailable; no files changed: '+live.stderr.strip())
@@ -75,9 +91,10 @@ def main():
     if installed_runtime.exists():
         old=installed_runtime.read_bytes()
         legacy=runtime.replace(b"[qs, '-n', '-c', 'MacDock']",b"[qs, '-c', 'MacDock']")
-        if old not in (runtime,legacy):raise RuntimeError('Local changes in runtime.py; merge before updating')
+        if old not in (runtime,legacy) and hashlib.sha256(old).hexdigest() not in REVIEWED_PREVIOUS_RUNTIME_HASHES:
+            raise RuntimeError('Local changes in runtime.py; merge before updating')
         shutil.copy2(installed_runtime,backup/'runtime.py')
-        replacements['runtime.py']=runtime
+    replacements['runtime.py']=runtime
     for name,source in (('integration_cleanup.py',ROOT/'bridge/integration_cleanup.py'),('noctalia_config.py',ROOT/'bridge/noctalia_config.py'),('wayland_probe.py',ROOT/'bridge/wayland_probe.py')):
         refuse_symlink(app/name)
         if (app/name).exists():shutil.copy2(app/name,backup/name)
@@ -135,6 +152,9 @@ def main():
         subprocess.run(['noctalia','msg','plugins','enable','wenwu/macdock'],check=True)
         # Reconcile live hosts after source replacement; enable alone can be a no-op.
         subprocess.run(['noctalia','msg','config-reload'],check=True)
+        # An inactive user unit may already be unloaded; reset-failed then exits 1.
+        # The following restart is authoritative and will load the unit if needed.
+        subprocess.run(['systemctl','--user','reset-failed','macdock.service'],capture_output=True,text=True)
         subprocess.run(['systemctl','--user','restart','macdock.service'],check=True)
         import deployment_probe
         deployment_probe.verify(log_offset=log_offset)
@@ -156,9 +176,13 @@ def main():
         shutil.copytree(backup/'complete-dock',app)
         if target.exists():shutil.rmtree(target)
         if (backup/'plugin').exists():shutil.copytree(backup/'plugin',target)
-        for command in (['noctalia','msg','plugins','enable','wenwu/macdock'],['noctalia','msg','config-reload'],['systemctl','--user','restart','macdock.service']):
-            result=subprocess.run(command,capture_output=True,text=True)
-            if result.returncode:print('Rollback restart failed: '+(result.stderr or result.stdout),file=sys.stderr)
+        for command in (['noctalia','msg','plugins','enable','wenwu/macdock'],['noctalia','msg','config-reload'],['systemctl','--user','reset-failed','macdock.service'],['systemctl','--user','restart','macdock.service']):
+            try:
+                result=subprocess.run(command,capture_output=True,text=True)
+                if result.returncode and command[-2:]!=['reset-failed','macdock.service']:
+                    print('Rollback restart failed: '+(result.stderr or result.stdout),file=sys.stderr)
+            except (OSError,subprocess.SubprocessError) as error:
+                print('Rollback restart failed: '+str(error),file=sys.stderr)
         shutil.rmtree(stage,ignore_errors=True)
         raise
     shutil.rmtree(stage,ignore_errors=True)

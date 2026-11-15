@@ -132,7 +132,12 @@ function render()
     panel.render(ui.column({key="settings-root",padding=18,gap=10},{
         ui.label({key="status",text="MacDock · " .. process,fontWeight="bold"}),
         ui.label({key="blur-status",text=status,height=36,maxLines=2}),
-        ui.button({key="restart",text="Restart Dock",onClick="restartDock",enabled=not busy}),
+        ui.row({key="dock-actions",gap=6},{
+            ui.button({key="restart",text="Restart",onClick="restartDock",enabled=not busy}),
+            ui.button({key="noctalia-apply",text="Apply Noctalia",onClick="applyNoctaliaDock",enabled=not busy}),
+            ui.button({key="noctalia-undo",text="Undo Noctalia",onClick="undoNoctaliaDock",
+                enabled=not busy and values.undoNoctaliaAvailable==true})
+        }),
         toggle("Enable Dock","enabled"),
         toggle("Autostart","automatic"),
         ui.column({key="monitor-group",gap=6},{ui.label({text="Monitor"}),
@@ -144,6 +149,38 @@ function render()
         slider("Background Opacity","glassOpacity",0,1,.01)
     }))
 end
+
+local function changeNoctaliaDock(action, source)
+    if busy then return end
+    -- A slider's final onChange may leave an unsaved draft even after its
+    -- drag ended. Apply/Undo are explicit operations and must stay clickable.
+    drafts={}
+    revision=revision+1;readTicket=readTicket+1;reading=false
+    busy=true;detail=action=="apply-noctalia-dock" and "Importing Noctalia Dock settings…" or "Undoing Noctalia Dock import…";render()
+    local function finished(result)
+        busy=false
+        local ok,response=pcall(noctalia.json.decode,result.stdout or "")
+        if not result.timedOut and result.exitCode==0 and ok and type(response)=="table" and response.saved==true and type(response.settings)=="table" then
+            values=response.settings;drafts={};loaded=true
+            detail=action=="apply-noctalia-dock" and "Noctalia Dock settings applied" or "Previous Dock settings restored"
+        else
+            detail="Noctalia Dock action failed: " .. tostring(result.stderr ~= "" and result.stderr or result.stdout)
+            noctalia.log(detail)
+        end
+        render()
+    end
+    if not run(action,source,finished) then
+        finished({exitCode=-1,stdout="",stderr="Could not start Dock action",timedOut=false})
+    end
+end
+function applyNoctaliaDock()
+    local keys = {"icon_size","item_spacing","background_opacity","radius",
+        "magnification","magnification_scale","show_running","auto_hide","smart_auto_hide"}
+    local source = {}
+    for _, key in ipairs(keys) do source[key] = noctalia.getSetting("dock." .. key) end
+    changeNoctaliaDock("apply-noctalia-dock",source)
+end
+function undoNoctaliaDock() changeNoctaliaDock("undo-noctalia-dock",{}) end
 
 local function control(action)
     if busy then return end

@@ -13,6 +13,40 @@ import sys
 import tempfile
 
 RANGES={'iconSize':(24,128),'magnification':(1,3),'glassOpacity':(0,1)}
+NOCTALIA_IMPORT_KEYS=('iconSize','spacing','glassOpacity','cornerRadius','magnificationEnabled','magnification','showRunning','hideMode')
+
+
+def active_import_backups(state):
+    return sorted((state/'import-backups').glob('*.json'))
+
+
+def noctalia_dock_patch(source):
+    """Copy compatible global Dock values; never copy pins, enable state or monitors."""
+    if not isinstance(source,dict):raise ValueError('Expected Noctalia Dock settings')
+    mappings={
+        'icon_size':('iconSize',24,128,int),
+        'item_spacing':('spacing',0,40,int),
+        'background_opacity':('glassOpacity',0,1,float),
+        'radius':('cornerRadius',0,80,int),
+        'magnification_scale':('magnification',1,3,float),
+    }
+    patch={}
+    for name,(key,minimum,maximum,kind) in mappings.items():
+        if name not in source:continue
+        value=source[name]
+        if type(value) not in (float,int) or not math.isfinite(value):raise ValueError('Invalid Noctalia '+name)
+        patch[key]=kind(max(minimum,min(maximum,value)))
+    for name,key in [('magnification','magnificationEnabled'),('show_running','showRunning')]:
+        if name in source:
+            if type(source[name]) is not bool:raise ValueError('Invalid Noctalia '+name)
+            patch[key]=source[name]
+    if 'auto_hide' in source or 'smart_auto_hide' in source:
+        smart=source.get('smart_auto_hide',False)
+        automatic=source.get('auto_hide',False)
+        if type(smart) is not bool or type(automatic) is not bool:raise ValueError('Invalid Noctalia hide mode')
+        patch['hideMode']='smart' if smart else 'always' if automatic else 'never'
+    if not patch:raise ValueError('No compatible Noctalia Dock settings found')
+    return patch
 
 
 def adapt(request):
@@ -37,18 +71,36 @@ def adapt(request):
     tint=request.get('background','#202023' if out['darkMode'] else '#ffffff')
     if not isinstance(tint,str) or not re.fullmatch('#[0-9a-fA-F]{6}',tint):raise ValueError('Invalid theme color')
     out['backgroundTint']=tint
+    if c.get('noctaliaDockColorSync',True) and 'iconColorize' in request:
+        enabled=request['iconColorize'];color=request.get('iconColor')
+        if type(enabled) is not bool:raise ValueError('Invalid icon colorization flag')
+        overrides=request.get('iconColorizeByMonitor',{})
+        if not isinstance(overrides,dict) or any(not isinstance(k,str) or type(v) is not bool for k,v in overrides.items()):
+            raise ValueError('Invalid monitor icon colorization settings')
+        selected=out['monitor']
+        if selected=='@auto':selected=out.get('runtimeMonitor','')
+        if selected in overrides:enabled=overrides[selected]
+        if not isinstance(color,str) or not re.fullmatch(r'#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})',color):
+            raise ValueError('Invalid icon color')
+        out['iconTint']=enabled
+        out['iconTintColor']=color
+        out['iconTintStrength']=1.0
     if 'iconOverrides' in c:
         import options
         out.update(options.optional({'iconOverrides':c['iconOverrides']},{}))
     return out
 
 
-def atomic_merge(path, patch, backup=None):
+def atomic_merge(path, patch, backup=None, respect_color_sync=False):
     path.parent.mkdir(parents=True,exist_ok=True)
     with (path.parent/'.integration.lock').open('w') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX)
         old=json.loads(path.read_text()) if path.exists() else {}
         if not isinstance(old,dict): raise ValueError('settings.json must be an object')
+        # A sync request can be calculated before Undo and commit after it.
+        # Check the current flag under the same lock as the write.
+        if respect_color_sync and old.get('noctaliaDockColorSync',True) is False:
+            patch={k:v for k,v in patch.items() if k not in ('iconTint','iconTintColor','iconTintStrength')}
         if backup is not None:
             backup.parent.mkdir(parents=True,exist_ok=True)
             backup.write_text(json.dumps(old,ensure_ascii=False,indent=2)+"\n")
@@ -77,7 +129,7 @@ def main():
         request=json.loads(sys.argv[2])
         if request.get('confirm') is not True:raise ValueError('Reset requires explicit confirmation')
         import settings_store
-        keys=('iconSize','spacing','glassOpacity','cornerRadius','magnificationEnabled','magnification','animationSpeed','hideMode','monitor')
+        keys=('iconSize','spacing','glassOpacity','cornerRadius','magnificationEnabled','magnification','animationSpeed','hideMode','monitor','noctaliaDockColorSync')
         backup=state/'reset-backups'/(datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')+'.json')
         atomic_merge(config/'macdock/settings.json',{k:settings_store.DEFAULTS[k] for k in keys},backup=backup)
         print(json.dumps({'saved':True,'backup':str(backup),'settings':settings_store.read(config/'macdock/settings.json')}))
@@ -131,9 +183,49 @@ def main():
         actual=settings_store.read(target)[key]
         if actual!=value:raise RuntimeError('Settings changed during save: '+key+'; requested='+repr(value)+'; readback='+repr(actual))
         print(json.dumps({'key':key,'value':actual,'saved':True}))
+    elif action=='apply-noctalia-dock':
+        patch=noctalia_dock_patch(json.loads(sys.argv[2]))
+        target=config/'macdock/settings.json'
+        # Repeated Apply must not overwrite the pre-import state. One Undo
+        # always returns to the settings from before the first active Apply.
+        backup=None
+        if not active_import_backups(state):
+            backup=state/'import-backups'/(datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')+'.json')
+        atomic_merge(target,dict(patch,noctaliaDockColorSync=True),backup=backup)
+        import settings_store
+        applied=settings_store.read(target)
+        if any(applied[key]!=value for key,value in patch.items()):raise RuntimeError('Imported settings did not match disk')
+        applied['undoNoctaliaAvailable']=True
+        print(json.dumps({'saved':True,'settings':applied,'changed':patch,'backup':str(backup)}))
+    elif action=='undo-noctalia-dock':
+        backups=active_import_backups(state)
+        if not backups:raise ValueError('No Noctalia Dock import to undo')
+        previous=json.loads(backups[0].read_text())
+        if not isinstance(previous,dict):raise ValueError('Import backup must contain a settings object')
+        import settings_store
+        # Explicit defaults also update a running QML model whose FileView
+        # cannot clear an old value when a key disappears from settings.json.
+        restore={key:previous.get(key,settings_store.DEFAULTS[key]) for key in NOCTALIA_IMPORT_KEYS}
+        # Stop the independent 1.5 s palette sync from immediately undoing
+        # the user's Undo. Normal full-color icons are restored as well.
+        restore.update(noctaliaDockColorSync=False,iconTint=False)
+        target=config/'macdock/settings.json'
+        undo_backup=state/'import-undo-backups'/(datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')+'.json')
+        atomic_merge(target,restore,backup=undo_backup)
+        current=json.loads(target.read_text())
+        if any(current.get(key)!=value for key,value in restore.items()):
+            raise RuntimeError('Undo settings did not match disk')
+        # Archive the full import session, including snapshots from older
+        # versions. Never revert one import on top of another imported state.
+        for snapshot in backups:
+            snapshot.rename(snapshot.with_suffix('.undone'))
+        restored=settings_store.read(target);restored['undoNoctaliaAvailable']=False
+        print(json.dumps({'saved':True,'settings':restored,'backup':str(undo_backup)}))
     elif action=='settings':
         import settings_store
-        print(json.dumps(settings_store.read(config/'macdock/settings.json')))
+        settings=settings_store.read(config/'macdock/settings.json')
+        settings['undoNoctaliaAvailable']=bool(active_import_backups(state))
+        print(json.dumps(settings))
     elif action=='blur-status':
         import native_blur
         print(json.dumps(native_blur.probe(target='dock')))
@@ -144,16 +236,19 @@ def main():
         patch=adapt(request)
         errors=[]
         try:
-            atomic_merge(config/'macdock/settings.json',{k:v for k,v in patch.items() if k in ('runtimeMonitor','darkMode','appearanceMode','tintMode','backgroundTint','dockStyle','outputSettings')})
+            atomic_merge(config/'macdock/settings.json',{k:v for k,v in patch.items() if k in ('runtimeMonitor','darkMode','appearanceMode','tintMode','backgroundTint','dockStyle','outputSettings','iconTint','iconTintColor','iconTintStrength')},respect_color_sync=True)
             import icon_theme
             icon_theme.apply(request['config'].get('iconTheme',''),config/'quickshell/MacDock/shell.qml',state/'theme-backups')
-            # Never acquire an already running, independently launched Dock.
+            # The ownership marker survives logout. It must not suppress a new
+            # start when systemd stopped the service in the previous session.
             if request['config'].get('enabled') and request['config'].get('automatic'):
                 live=command(['qs','-c','MacDock','ipc','call','health','ready'])
-                if live.returncode and not owner.exists():
-                    result=command(['systemctl','--user','start','macdock.service'])
-                    if result.returncode:raise RuntimeError(result.stderr)
-                    owner.touch()
+                if live.returncode:
+                    active=command(['systemctl','--user','is-active','macdock.service'])
+                    if active.returncode:
+                        result=command(['systemctl','--user','start','macdock.service'])
+                        if result.returncode:raise RuntimeError(result.stderr or result.stdout)
+                        owner.touch()
             elif not request['config'].get('enabled') and owner.exists():
                 result=command(['systemctl','--user','stop','macdock.service'])
                 if result.returncode:raise RuntimeError(result.stderr)

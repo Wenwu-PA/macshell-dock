@@ -6,9 +6,42 @@ noctalia.setUpdateInterval(1500)
 local function invoke(action, payload, callback)
     return noctalia.runAsync({"python3", noctalia.pluginDir() .. "/bridge.py", action, payload or "{}"}, callback)
 end
+local function iconColor()
+    local spec = noctalia.getSetting("shell.app_icon_color")
+    if type(spec) ~= "string" or spec == "" then
+        spec = noctalia.isDarkMode() and "on_surface_variant" or "on_surface"
+    end
+    if string.sub(spec, 1, 1) == "#" then return spec end
+    return noctalia.getColor(spec) or noctalia.getColor("on_surface")
+end
+local function iconColorization()
+    -- 5.5 moved the shared toggle from shell.app_icon_colorize to dock.colorize_icons.
+    -- Reading the containing tables avoids warnings for missing legacy keys.
+    local shell = noctalia.getSetting("shell")
+    local dock = noctalia.getSetting("dock")
+    local enabled = type(shell) == "table" and shell.app_icon_colorize == true or false
+    local overrides = {}
+    if type(dock) == "table" then
+        if type(dock.colorize_icons) == "boolean" then enabled = dock.colorize_icons end
+        if type(dock.monitor) == "table" then
+            for name, settings in pairs(dock.monitor) do
+                if type(name) == "string" and type(settings) == "table" and type(settings.colorize_icons) == "boolean" then
+                    overrides[name] = settings.colorize_icons
+                end
+            end
+        end
+    end
+    return enabled, overrides
+end
 function update()
     if busy or noctalia.nowMs() < retryAt then return end
-    local request = {dark=noctalia.isDarkMode(), accent=noctalia.getColor("primary"), background=noctalia.getColor("surface"), outputs=noctalia.outputs()}
+    local colorize, byMonitor = iconColorization()
+    local request = {
+        dark=noctalia.isDarkMode(), accent=noctalia.getColor("primary"),
+        background=noctalia.getColor("surface"), outputs=noctalia.outputs(),
+        iconColorize=colorize, iconColorizeByMonitor=byMonitor,
+        iconColor=iconColor()
+    }
     local payload = noctalia.json.encode(request)
     -- Helper reads existing JSON on each service tick; unchanged writes are suppressed.
     busy = true

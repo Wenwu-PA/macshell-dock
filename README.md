@@ -21,7 +21,7 @@ A verified desktop screenshot is not available yet. No mockup is presented as a 
 
 - Linux with Hyprland/Wayland; Quickshell 0.3.2 and Python 3.11+.
 - Qt 6 Quick, Quick Effects and Multimedia (provided through your distribution's Quickshell dependencies).
-- Noctalia 5.4.1 / Plugin API 42 for the optional control integration.
+- Noctalia 5.4.1 or 5.5.0 / Plugin API 42 for the optional control integration.
 - `inotify-tools`, `xdg-utils`, user systemd; an installed XDG icon theme.
 - Native blur requires compositor support for `ext-background-effect-v1` and enabled compositor blur.
 
@@ -61,6 +61,29 @@ Open Noctalia's Bar widget editor, search **MacDock Control** and add it to Star
 Capsule groups use the host's normal presentation. Clicking `wenwu/macdock:widget` toggles the existing
 `wenwu/macdock:control` panel. The installer never places widgets in your Bar automatically.
 The compact panel is the only custom settings UI; plugin Settings has no duplicate Dock parameters.
+
+### Noctalia icon colors and reversible Dock import
+
+While Noctalia color sync is active, MacDock follows **Dock → Effects → Colorize App Icons** (Noctalia 5.5.0) and
+**Appearance → Interface → App Icon Color** palette role (including `primary_container`).
+On Noctalia 5.4.1 the legacy global colorization switch is used. Selecting a color without
+enabling Dock icon colorization leaves the original full-color app icons unchanged.
+Palette and light/dark changes propagate while the plugin service is running and color sync is enabled.
+
+The **Apply Noctalia Dock** button beside **Restart Dock** copies the compatible global Noctalia
+Dock settings once: icon size/spacing, opacity, radius, magnification, running apps and hide mode.
+It does **not** enable the stock Noctalia Dock or replace MacDock pins, monitor preference,
+autostart, enabled state or custom icons. An import backup is created under
+`$XDG_STATE_HOME/macdock/import-backups/`. A separate **Undo Noctalia** button restores
+the Dock values from before the first Apply, preserving unrelated settings and pins. Multiple
+Apply clicks share the same baseline; one Undo cancels the entire import session, including
+automatic Noctalia icon tint (restoring full-color icons). Apply enables color sync again.
+Undo also works after reopening the panel. Later Noctalia Dock edits require another Apply click.
+
+The plugin also starts its owned `macdock.service` after each graphical login when **Enable Dock**
+and **Autostart** are on. The service ownership marker survives logout; it is not treated as proof
+that a Dock process is still running. If the service is already starting, the plugin does not
+restart it. An independently running Dock is left untouched.
 
 ## Updating
 
@@ -105,7 +128,7 @@ See [troubleshooting and recovery](docs/TROUBLESHOOTING.md).
 - Native blur intensity follows compositor settings; MacDock does not change global blur settings.
 - Some advanced preferences are JSON-only; Control deliberately has no scrolling or secondary editor pages.
 - No screenshot, live wallpaper capture or custom optical shader is used.
-- A matching Noctalia 5.4.1 API is required; later versions are not declared supported without testing.
+- Installer version validation accepts Noctalia 5.4.1 and 5.5.0 with Plugin API 42; live 5.5.0 graphical behavior still requires acceptance testing.
 
 ## Development
 

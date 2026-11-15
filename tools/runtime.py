@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Launch only MacDock, without replacing or stopping any other shell."""
-import fcntl
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
@@ -26,15 +24,12 @@ def main():
     runtime = os.environ.get('XDG_RUNTIME_DIR')
     if not runtime:
         sys.exit('XDG_RUNTIME_DIR is missing.')
-    lock = open(Path(runtime) / 'macdock-launch.lock', 'w')
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        sys.exit('MacDock launcher is already running.')
     check = subprocess.run([qs, '-c', 'MacDock', 'ipc', 'call', 'health', 'ready'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     if check.returncode == 0:
         return 0
-    os.set_inheritable(lock.fileno(), True)
+    # Quickshell -n already prevents duplicate config instances. Passing an
+    # inheritable flock into qs lets launched apps (e.g. Zen) retain it after
+    # Dock exits, permanently preventing a service restart.
     os.execv(qs, [qs, '-n', '-c', 'MacDock'])
 
 
